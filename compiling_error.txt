@@ -1,0 +1,2 @@
+/home/julio/catkin_ws/src/mueve_brazo/src/ejemplo_bag.py: file not recognized: No se reconoce el formato del fichero
+collect2: error: ld returned 1 exit status
