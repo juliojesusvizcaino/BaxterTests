@@ -128,11 +128,12 @@ class MueveTorqueRange(object):
         posicion_inicial = np.array([0, 0, 0, 0, math.pi/2, 0, 0])
         #torque_actual = np.array(self.datos.effort[3:10])
         #torque_actual = [-0.005540, -0.24763, -0.00608, -0.1602398, -0.004937488, -0.00549879, -0.0001575]
-        torque_actual = np.array(self.datos.effort[3:10])
+        #torque_actual = np.array(self.datos.effort[3:10])
         torque_com = deque([])
-        [torque_com.append(torque_actual) for _ in range(0,200)]
+        #[torque_com.append(torque_actual) for _ in range(0,200)]
+        [torque_com.append(self.msg.command) for _ in range(0,20)]
         print len(torque_com)
-        self.msg.command = self.datos.effort[3:10]
+        #self.msg.command = self.datos.effort[3:10]
         time.sleep(0.5)
 
         rospy.loginfo('Empezando bucle')
@@ -140,13 +141,14 @@ class MueveTorqueRange(object):
         while not rospy.is_shutdown():
             posicion_actual = np.array(self.datos.position[3:10])
             #torque_actual = self.datos.effort[3:10]
-            torque_actual = self.msg.command
-            torque_com.append(torque_actual + (posicion_inicial - posicion_actual)*0.1)
+            #torque_actual = self.msg.command
+            #torque_com.append(torque_actual + (posicion_inicial - posicion_actual)*0.1)
+            torque_com.append((posicion_inicial - posicion_actual)*100)
             torque_com.popleft()
             torque_sent = self.filtrapasobaja(torque_com)
             self.msg.command = self.compruebatorque(torque_sent)
             self.pub.publish(self.msg)
-            self.pubGravity.publish(self.msgGravity)
+            #self.pubGravity.publish(self.msgGravity)
             self.rate.sleep()
 
     def apagado(self):
