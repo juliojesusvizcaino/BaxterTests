@@ -4,41 +4,49 @@ import rospy
 import math
 import argparse
 import numpy as np
+import time
+from collections import deque
+import matplotlib.pyplot as plt
 
 import baxter_tools
 import baxter_interface
 import rosbag
 from baxter_core_msgs.msg import JointCommand
 from std_msgs.msg import Float64
+from std_msgs.msg import Empty
 from sensor_msgs.msg import JointState
 
-class MueveBrazoTorque(object):
+class MueveTorqueRange(object):
     def registro_rec(self, data):
         self.datos = data
-        self.bag_rec.write('/robot/joint_states', data)
+        if self.guarda:
+            self.bag_rec.write('/robot/joint_states', data)
 
     def registro_sent(self, data):
-        self.bag_sent.write(self.topic, data)
+        if self.guarda:
+            self.bag_sent.write(self.topic, data)
 
-    def __init__(self, limb='left', frecuencia=100, torque=10, intervalo=100):
+    def __init__(self, limb, frecuencia=100, torque=1):
         """
         Mueve el brazo de Baxter especificado mediante ordenes de ROS publicando
-        el torque
+        la velocidad
         """
         self.limb = limb
         self.torque = torque
         self.datos = JointState()
-        self.intervalo = intervalo
-        self.alpha = 1
+        self.torquemax = [50, 50, 50, 50, 15, 15, 15]
+        self.guarda = False
 
         rospy.loginfo("Creando editor (publisher) a %sHz" % frecuencia)
         self.topic = '/robot/limb/'+self.limb+'/joint_command'
         self.pub = rospy.Publisher(self.topic, JointCommand, tcp_nodelay=True, queue_size=1)
+        self.topicGravity = '/robot/limb/'+self.limb+'/suppress_gravity_compensation'
+        self.pubGravity = rospy.Publisher(self.topicGravity, Empty, tcp_nodelay=True, queue_size=1)
 
         rospy.loginfo("Creando registros bag")
-        nombre_rec = 'recibido_v' + str(self.torque) + '_lapse' + str(self.intervalo)
+        nombre_rec = 'recibido_torque' + str(self.torque)
         self.bag_rec = rosbag.Bag(nombre_rec+'.bag', 'w')
-        nombre_sent = 'enviado_v' + str(self.torque) + '_lapse' + str(self.intervalo)
+        nombre_sent = 'enviado_torque' + str(self.torque)
         self.bag_sent = rosbag.Bag(nombre_sent+'.bag', 'w')
 
         rospy.loginfo("Creando suscriptores (subscriber)")
@@ -50,7 +58,8 @@ class MueveBrazoTorque(object):
         self.msg.names = ['s0', 's1', 'e0', 'e1', 'w0', 'w1', 'w2']
         for i, nombre in enumerate(self.msg.names):
             self.msg.names[i] = limb + '_' + nombre
-        self.msg.command = list()
+
+        self.msgGravity = Empty()
 
         self.rs = baxter_interface.RobotEnable()
         self.rs.enable()
@@ -60,7 +69,7 @@ class MueveBrazoTorque(object):
 
 
     def set_init(self):
-        """ Establece posicion inicial con velocidaded (no funciona)"""
+        """ Establece posicion inicial con velocidades (no funciona)"""
         posfinal = [0, 0, 0, 0, math.pi/2, 0, 0]
         pos0 = np.array(posfinal)
         names = self.datos.name
@@ -90,6 +99,7 @@ class MueveBrazoTorque(object):
         rospy.sleep(1.)
 
     def inicia_pos(self):
+        rospy.loginfo('Iniciando posicion')
         brazo = baxter_interface.Limb(self.limb)
         command = [0, 0, 0, 0, math.pi/2, 0, 0]
         pos_izq = dict()
@@ -97,54 +107,52 @@ class MueveBrazoTorque(object):
             pos_izq[name] = value
         brazo.move_to_joint_positions(pos_izq)
 
-    def definetorque(self, sentido, limites):
-        torque_range = [-self.torque, self.torque]
-        datoactual = self.datos.position[8]
+    def compruebatorque(self, torque):
+        for i, valor in enumerate(torque):
+            if np.abs(valor) > self.torquemax[i]:
+                torque[i] = np.sign(valor)*self.torquemax[i]
+        return torque
 
-        if sentido == 1 and datoactual < limites[1]:
-            self.msg.command[5] = torque_range[sentido]
-        elif sentido == 1:
-            self.msg.command[5] = self.alpha*(limites[1] - datoactual)
-
-        if sentido == 0 and datoactual > limites[0]:
-            self.msg.command[5] = torque_range[sentido]
-        elif sentido == 1:
-            self.msg.command[5] = self.alpha*(limites[0] - datoactual)
+    def filtrapasobaja(self, torques):
+        torques_out = list()
+        for valores in zip(*torques):
+            torques_out.append(np.mean(valores))
+        return torques_out
 
     def mueve_brazo(self):
         i = 0.0
-        sentido = 1
+        pos = 1
         w1_range = [-math.pi/2, 120.0/180*math.pi]
-        pos0 = np.array([0, 0, 0, 0, math.pi/2, 0, 0])
+        self.msg.command = [0, 0, 0, 0, 0, 0, 0]
+        time.sleep(2.)
+        posicion_inicial = np.array([0, 0, 0, 0, math.pi/2, 0, 0])
+        #torque_actual = np.array(self.datos.effort[3:10])
+        #torque_actual = [-0.005540, -0.24763, -0.00608, -0.1602398, -0.004937488, -0.00549879, -0.0001575]
         torque_actual = np.array(self.datos.effort[3:10])
-        print self.msg.command
+        torque_com = deque([])
+        [torque_com.append(torque_actual) for _ in range(0,200)]
+        print len(torque_com)
+        self.msg.command = self.datos.effort[3:10]
+        time.sleep(0.5)
 
         rospy.loginfo('Empezando bucle')
-        try:
-            while not rospy.is_shutdown() and 0.9*w1_range[0] < self.datos.position[8] and self.datos.position[8] < 0.9*w1_range[1]:
-                posicion_actual = np.array(self.datos.position[3:10])
-                torque_actual = torque_actual + (pos0 - posicion_actual)
-                self.msg.command = list(torque_actual)
-                print self.datos.position[3:10]
-                print list(pos0 - self.datos.position[3:10])
-                print self.datos.effort[3:10]
-                print ''
-                #self.msg.command = torque_pos_inic
-                #self.definetorque(sentido, w1_range)
+        self.guarda = True
+        while not rospy.is_shutdown():
+            posicion_actual = np.array(self.datos.position[3:10])
+            #torque_actual = self.datos.effort[3:10]
+            torque_actual = self.msg.command
+            torque_com.append(torque_actual + (posicion_inicial - posicion_actual)*0.1)
+            torque_com.popleft()
+            torque_sent = self.filtrapasobaja(torque_com)
+            self.msg.command = self.compruebatorque(torque_sent)
+            self.pub.publish(self.msg)
+            self.pubGravity.publish(self.msgGravity)
+            self.rate.sleep()
 
-                self.pub.publish(self.msg)
-                i += 1
-                if i < self.intervalo:
-                    sentido = 1
-                elif i < 2*self.intervalo:
-                    sentido = 0
-                else:
-                    i = 0
-                    sentido = 1
-                self.rate.sleep()
-        finally:
-            self.bag_rec.close()
-            self.bag_sent.close()
+    def apagado(self):
+        self.bag_rec.close()
+        self.bag_sent.close()
+
 
 
 
@@ -152,21 +160,21 @@ class MueveBrazoTorque(object):
 
 def main():
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument('-t', '--torque', type=float, help='Torque del brazo (0,15)', default=10.0)
-    parser.add_argument('-i', '--intervalo', type=int, help='Intervalo de tiempo que va hacia cada lado', default=100)
+    parser.add_argument('-t', '--torque', type=float, help='Torque del brazo (0,15)', default=1.0)
     args = parser.parse_args()
 
     torque = args.torque
-    intervalo = args.intervalo
     frecuencia = 100
 
     rospy.loginfo("Iniciando nodo")
     rospy.init_node("nodo_mueve_brazo_ROS")
-    brazo_vel = MueveBrazoTorque('left', frecuencia, torque, intervalo)
+    brazo_vel = MueveTorqueRange('left', frecuencia, torque)
 
     brazo_vel.inicia_pos()
 
     brazo_vel.mueve_brazo()
+
+    rospy.on_shutdown(brazo_vel.apagado)
 
 
 

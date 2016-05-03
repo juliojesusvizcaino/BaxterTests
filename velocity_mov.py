@@ -89,35 +89,37 @@ class MueveBrazoVel(object):
 
     def inicia_pos(self):
         brazo = baxter_interface.Limb(self.limb)
-        self.msg.command = [0, 0, 0, 0, math.pi/2, 0, 0]
+        command = [0, 0, 0, 0, math.pi/2, 0, 0]
         pos_izq = dict()
-        for name, value in zip(self.msg.names, self.msg.command):
+        for name, value in zip(self.msg.names, command):
             pos_izq[name] = value
         brazo.move_to_joint_positions(pos_izq)
 
     def mueve_brazo(self):
         i = 0.0
-        pos = 0
+        pos = 1
         vel_range = [-self.velocidad, self.velocidad]
         w1_range = [-math.pi/2, 120.0/180*math.pi]
+        self.msg.command = [0, 0, 0, 0, 0, 0, 0]
 
         rospy.loginfo('Empezando bucle')
-        try:
-            while not rospy.is_shutdown() and w1_range[0] < 1.1*self.datos.position[8] and 1.1*self.datos.position[8] < w1_range[1]:
-                self.msg.command[5] = vel_range[pos]*1
-                self.pub.publish(self.msg)
-                i += 1
-                if i < self.intervalo:
-                    pos = 0
-                elif i < 2*self.intervalo:
-                    pos = 1
-                else:
-                    i = 0
-                    pos = 0
-                self.rate.sleep()
-        finally:
-            self.bag_rec.close()
-            self.bag_sent.close()
+        while not rospy.is_shutdown() and 0.9*w1_range[0] < self.datos.position[8] and self.datos.position[8] < 0.9*w1_range[1]:
+            self.msg.command[5] = vel_range[pos]*1
+            self.pub.publish(self.msg)
+            i += 1
+            if i < self.intervalo:
+                pos = 1
+            elif i < 2*self.intervalo:
+                pos = 0
+            else:
+                i = 0
+                pos = 1
+            self.rate.sleep()
+
+    def apagado(self):
+        self.bag_rec.close()
+        self.bag_sent.close()
+
 
 
 
@@ -126,7 +128,7 @@ class MueveBrazoVel(object):
 def main():
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument('-v', '--velocity', type=float, help='Velocidad del brazo (0,2)', default=1.0)
-    parser.add_argument('-i', '--intervalo', type=float, help='Intervalo de tiempo que va hacia cada lado', default=100)
+    parser.add_argument('-i', '--intervalo', type=int, help='Intervalo de tiempo que va hacia cada lado', default=100)
     args = parser.parse_args()
 
     velocidad = args.velocity
@@ -135,11 +137,13 @@ def main():
 
     rospy.loginfo("Iniciando nodo")
     rospy.init_node("nodo_mueve_brazo_ROS")
-    brazo_vel = MueveBrazoVel('left', frecuencia, velocidad)
+    brazo_vel = MueveBrazoVel('left', frecuencia, velocidad, intervalo)
 
     brazo_vel.inicia_pos()
 
     brazo_vel.mueve_brazo()
+
+    rospy.on_shutdown(brazo_vel.apagado)
 
 
 
