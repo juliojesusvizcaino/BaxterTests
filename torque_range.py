@@ -19,6 +19,12 @@ from sensor_msgs.msg import JointState
 class MueveTorqueRange(object):
     def registro_rec(self, data):
         self.datos = data
+        for i, name in enumerate(self.msg.names):
+            idx = [j for j, name2 in enumerate(data.name) if name==name2]
+            self.position[i] = data.position[idx[0]]
+            self.velocity[i] = data.velocity[idx[0]]
+            self.effort[i] = data.effort[idx[0]]
+
         if self.guarda:
             self.bag_rec.write('/robot/joint_states', data)
 
@@ -36,6 +42,9 @@ class MueveTorqueRange(object):
         self.datos = JointState()
         self.torquemax = [50, 50, 50, 50, 15, 15, 15]
         self.guarda = False
+        self.position = [None]*7
+        self.velocity = [None]*7
+        self.effort = [None]*7
 
         rospy.loginfo("Creando editor (publisher) a %sHz" % frecuencia)
         self.topic = '/robot/limb/'+self.limb+'/joint_command'
@@ -139,11 +148,11 @@ class MueveTorqueRange(object):
         rospy.loginfo('Empezando bucle')
         self.guarda = True
         while not rospy.is_shutdown():
-            posicion_actual = np.array(self.datos.position[3:10])
+            posicion_actual = np.array(self.position)
             #torque_actual = self.datos.effort[3:10]
             #torque_actual = self.msg.command
             #torque_com.append(torque_actual + (posicion_inicial - posicion_actual)*0.1)
-            torque_com.append((posicion_inicial - posicion_actual)*100)
+            torque_com.append(self.compruebatorque((posicion_inicial - posicion_actual)*10))
             torque_com.popleft()
             torque_sent = self.filtrapasobaja(torque_com)
             self.msg.command = self.compruebatorque(torque_sent)
