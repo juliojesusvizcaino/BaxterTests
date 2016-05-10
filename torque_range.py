@@ -143,9 +143,10 @@ class MueveTorqueRange(object):
         rospy.loginfo('Empezando bucle')
         self.guarda = True
         while not rospy.is_shutdown():
-            posicion_actual = np.array(self.position)
-            #torque_com.append(np.array(self.msg.command) + (posicion_inicial - posicion_actual)*0.1)
-            torque_com.append((posicion_inicial - posicion_actual)*10)
+            pos_actual = np.array(self.position)
+            vel_actual = np.array(self.velocity)
+            #torque_com.append(np.array(self.msg.command) + (posicion_inicial - pos_actual)*0.1)
+            torque_com.append(-((posicion_inicial - pos_actual)^2 + vel_actual^2)
             torque_com.popleft()
             #torque_sent = self.filtrapasobaja(torque_com)
             torque_sent = list(torque_com[-1])
