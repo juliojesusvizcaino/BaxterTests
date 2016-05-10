@@ -46,6 +46,9 @@ class MueveTorqueRange(object):
         self.velocity = [None]*7
         self.effort = [None]*7
 
+        cuff_ns = 'robot/limb/' + limb + '/suppress_cuff_interaction'
+        self._pub_cuff_disable = rospy.Publisher(cuff_ns, Empty, queue_size=1)
+
         rospy.loginfo("Creando editor (publisher) a %sHz" % frecuencia)
         self.topic = '/robot/limb/'+self.limb+'/joint_command'
         self.pub = rospy.Publisher(self.topic, JointCommand, tcp_nodelay=True, queue_size=1)
@@ -74,8 +77,6 @@ class MueveTorqueRange(object):
         self.rs.enable()
 
         self.rate = rospy.Rate(frecuencia)
-
-
 
     def set_init(self):
         """ Establece posicion inicial con velocidades (no funciona)"""
@@ -132,32 +133,28 @@ class MueveTorqueRange(object):
         i = 0.0
         pos = 1
         w1_range = [-math.pi/2, 120.0/180*math.pi]
-        self.msg.command = [0, 0, 0, 0, 0, 0, 0]
+        #self.msg.command = [0, 0, 0, 0, 0, 0, 0]
+        self.msg.command = self.effort
         time.sleep(2.)
         posicion_inicial = np.array([0, 0, 0, 0, math.pi/2, 0, 0])
-        #torque_actual = np.array(self.datos.effort[3:10])
-        #torque_actual = [-0.005540, -0.24763, -0.00608, -0.1602398, -0.004937488, -0.00549879, -0.0001575]
-        #torque_actual = np.array(self.datos.effort[3:10])
         torque_com = deque([])
-        #[torque_com.append(torque_actual) for _ in range(0,200)]
         [torque_com.append(self.msg.command) for _ in range(0,20)]
-        print len(torque_com)
-        #self.msg.command = self.datos.effort[3:10]
-        time.sleep(0.5)
 
         rospy.loginfo('Empezando bucle')
         self.guarda = True
         while not rospy.is_shutdown():
             posicion_actual = np.array(self.position)
-            #torque_actual = self.datos.effort[3:10]
-            #torque_actual = self.msg.command
-            #torque_com.append(torque_actual + (posicion_inicial - posicion_actual)*0.1)
-            torque_com.append(self.compruebatorque((posicion_inicial - posicion_actual)*10))
+            #torque_com.append(np.array(self.msg.command) + (posicion_inicial - posicion_actual)*0.1)
+            torque_com.append((posicion_inicial - posicion_actual)*10)
             torque_com.popleft()
-            torque_sent = self.filtrapasobaja(torque_com)
-            self.msg.command = self.compruebatorque(torque_sent)
+            #torque_sent = self.filtrapasobaja(torque_com)
+            torque_sent = list(torque_com[-1])
+            #self.msg.command = self.compruebatorque(torque_sent)
+            self.msg.command = torque_sent
+
             self.pub.publish(self.msg)
             #self.pubGravity.publish(self.msgGravity)
+            self._pub_cuff_disable.publish()
             self.rate.sleep()
 
     def apagado(self):
