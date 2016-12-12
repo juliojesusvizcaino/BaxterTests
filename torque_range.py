@@ -136,6 +136,7 @@ class MueveTorqueRange(object):
         #self.msg.command = [0, 0, 0, 0, 0, 0, 0]
         self.msg.command = self.effort
         time.sleep(2.)
+        torque0 = np.array(self.effort)
         posicion_inicial = np.array([0, 0, 0, 0, math.pi/2, 0, 0])
         torque_com = deque([])
         [torque_com.append(self.msg.command) for _ in range(0,20)]
@@ -146,15 +147,16 @@ class MueveTorqueRange(object):
             pos_actual = np.array(self.position)
             vel_actual = np.array(self.velocity)
             #torque_com.append(np.array(self.msg.command) + (posicion_inicial - pos_actual)*0.1)
-            torque_com.append(-((posicion_inicial - pos_actual)^2 + vel_actual^2)
+            torque_com.append(10*(posicion_inicial - pos_actual)**3 - 1*vel_actual**3 + torque0)
             torque_com.popleft()
             #torque_sent = self.filtrapasobaja(torque_com)
             torque_sent = list(torque_com[-1])
-            #self.msg.command = self.compruebatorque(torque_sent)
-            self.msg.command = torque_sent
+            self.msg.command = self.compruebatorque(torque_sent)
+            self.msg.command[5] = 0
+            #self.msg.command = torque_sent
 
             self.pub.publish(self.msg)
-            #self.pubGravity.publish(self.msgGravity)
+            self.pubGravity.publish(self.msgGravity)
             self._pub_cuff_disable.publish()
             self.rate.sleep()
 
